@@ -46,6 +46,14 @@ gradle.beforeProject { project ->
     }
 }
 
+// app/build.gradle applies com.google.firebase.crashlytics but the root
+// build.gradle never puts its Gradle plugin on the buildscript classpath, only
+// com.google.gms:google-services. Added here rather than upstream.
+gradle.beforeProject { project ->
+    project.buildscript.dependencies.add(
+        'classpath', 'com.google.firebase:firebase-crashlytics-gradle:2.9.9')
+}
+
 allprojects { p ->
     p.afterEvaluate {
         if (p.hasProperty('android')) {
