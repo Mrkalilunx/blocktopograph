@@ -51,7 +51,7 @@ gradle.beforeProject { project ->
 // com.google.gms:google-services. Added here rather than upstream.
 gradle.beforeProject { project ->
     project.buildscript.dependencies.add(
-        'classpath', 'com.google.firebase:firebase-crashlytics-gradle:2.9.9')
+        'classpath', 'com.google.firebase:firebase-crashlytics-gradle:2.7.0')
 }
 
 allprojects { p ->
