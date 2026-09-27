@@ -1,0 +1,45 @@
+// CI-only init script, passed via -I so no upstream build file is touched.
+// It does three things:
+//   1. drops the dead jcenter() repos and substitutes google() + mavenCentral()
+//   2. pins buildToolsVersion to 29.0.3, the last release still shipping lib/dx.jar
+//      that AGP 3.5.3 hard-depends on (30.0.0 and later removed it)
+//   3. keeps the ABI list intact by relying on NDK r17c, the last NDK that still
+//      knows the x86 ABI the project asks for in leveldb/build.gradle
+
+allprojects {
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+    }
+    repositories {
+        google()
+        mavenCentral()
+        all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository &&
+                repo.url != null &&
+                repo.url.toString().contains('jcenter')) {
+                remove repo
+            }
+        }
+    }
+}
+
+allprojects { p ->
+    p.afterEvaluate {
+        if (p.hasProperty('android')) {
+            p.android.buildToolsVersion = '29.0.3'
+        }
+    }
+}
+
+// Fallback, only enable if r17c cannot be provisioned on the runner:
+// allprojects { p ->
+//     p.afterEvaluate {
+//         if (p.hasProperty('android')) {
+//             p.android.defaultConfig.ndk.abiFilters.clear()
+//             p.android.defaultConfig.ndk.abiFilters.addAll(['armeabi-v7a', 'arm64-v8a'])
+//         }
+//     }
+// }
