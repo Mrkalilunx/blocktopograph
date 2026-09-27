@@ -1,0 +1,90 @@
+name: Android CI
+
+on:
+  push:
+    branches: [rukiroki, ci/**]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # cmdline-tools 16.0 refuses to run on anything below JDK 17, so the
+      # SDK is provisioned first under JDK 17 and Gradle runs after switching back
+      - name: Set up JDK 17 for sdkmanager
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12266719
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
+          packages: 'platform-tools'
+
+      - name: Install SDK components
+        run: |
+          sdkmanager --install \
+            "platforms;android-31" \
+            "build-tools;29.0.3" \
+            "platform-tools"
+
+      - name: Set up JDK 8 for Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+
+      - name: Verify JDK switch
+        run: |
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
+
+      - name: Set up NDK r17c
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r17c
+          add-to-path: true
+
+      - name: Inject fake google-services.json
+        run: mkdir -p app && cp .github/ci-google-services.json app/google-services.json
+
+      # The wrapper pins 5.4.1, but crashlytics-gradle trips over a Gradle
+      # internal API that changed inside the 5.x line. 5.6.4 is the top of the
+      # range AGP 3.5.3 supports, and a system Gradle avoids editing the
+      # upstream wrapper properties.
+      - name: Set up Gradle 5.6.4
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 5.6.4
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle564-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle564-${{ runner.os }}-
+
+      - name: Build assembleDebug
+        run: |
+          gradle --no-daemon --stacktrace \
+            -x lint \
+            -Pandroid.ndkVersion=${{ steps.setup-ndk.outputs.ndk-path }} \
+            -I .github/ci-init.gradle \
+            assembleDebug
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}

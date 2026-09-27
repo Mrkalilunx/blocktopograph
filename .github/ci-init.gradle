@@ -1,0 +1,97 @@
+// CI-only init script, passed via -I so no upstream build file is touched.
+// It does five things:
+//   1. drops the dead jcenter() repos and substitutes google() + mavenCentral()
+//   2. repoints the dead io.fabric.tools buildscript classpath at AGP, which is
+//      already on the same classpath, because maven.fabric.io answers 403
+//   3. absorbs the AGP 7.x `lint { }` block, which AGP 3.5.3 does not know
+//   4. pins buildToolsVersion to 29.0.3, the last release still shipping lib/dx.jar
+//      that AGP 3.5.3 hard-depends on (30.0.0 and later removed it)
+//   5. keeps the ABI list intact by relying on NDK r17c, the last NDK that still
+//      knows the x86 ABI the project asks for in leveldb/build.gradle
+
+allprojects {
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+            maven { url 'https://jitpack.io' }
+        }
+    }
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+        all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository &&
+                repo.url != null &&
+                repo.url.toString().contains('jcenter')) {
+                remove repo
+            }
+        }
+    }
+}
+
+// The buildscript classpath resolves before allprojects callbacks run, so this
+// has to hook beforeProject. Substituting rather than removing keeps the upstream
+// build.gradle untouched; the io.fabric plugin is never applied anyway, its apply
+// line in app/build.gradle is commented out.
+gradle.beforeProject { project ->
+    project.buildscript.configurations.all { config ->
+        config.resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'io.fabric.tools' &&
+                details.requested.name == 'gradle') {
+                details.useTarget('com.android.tools.build:gradle:3.5.3')
+            }
+        }
+    }
+}
+
+// app/build.gradle applies com.google.firebase.crashlytics but the root
+// build.gradle never puts its Gradle plugin on the buildscript classpath, only
+// com.google.gms:google-services. Added here rather than upstream.
+gradle.beforeProject { project ->
+    project.buildscript.dependencies.add(
+        'classpath', 'com.google.firebase:firebase-crashlytics-gradle:2.7.0')
+}
+
+allprojects { p ->
+    p.afterEvaluate {
+        if (p.hasProperty('android')) {
+            p.android.buildToolsVersion = '29.0.3'
+        }
+    }
+}
+
+// app/build.gradle uses the AGP 7.x `lint { }` block while the root build.gradle
+// pins AGP 3.5.3, which only knows `lintOptions`. With no `lint` method on the
+// extension, Groovy falls back to the same-named :app:lint task and the closure
+// lands on LintGlobalTask, which has neither disable() nor baseline(). The block
+// is absorbed here as a no-op so evaluation gets past it. Lint itself is skipped
+// with -x lint, so nothing configured in that block ever runs. This papers over an
+// upstream toolchain inconsistency, it does not fix it.
+gradle.beforeProject { project ->
+    if (project.name == 'app') {
+        project.plugins.withId('com.android.application') {
+            def ext = project.extensions.getByName('android')
+            ext.metaClass.lint = { Closure c ->
+                def absorber = new Expando()
+                absorber.disable = { Object... a -> absorber }
+                absorber.baseline = { Object... a -> absorber }
+                absorber.methodMissing = { String name, args -> absorber }
+                c.delegate = absorber
+                c.resolveStrategy = Closure.DELEGATE_FIRST
+                c.call()
+            }
+        }
+    }
+}
+
+// Fallback, only enable if r17c cannot be provisioned on the runner:
+// allprojects { p ->
+//     p.afterEvaluate {
+//         if (p.hasProperty('android')) {
+//             p.android.defaultConfig.ndk.abiFilters.clear()
+//             p.android.defaultConfig.ndk.abiFilters.addAll(['armeabi-v7a', 'arm64-v8a'])
+//         }
+//     }
+// }
