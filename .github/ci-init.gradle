@@ -1,9 +1,11 @@
 // CI-only init script, passed via -I so no upstream build file is touched.
-// It does three things:
+// It does four things:
 //   1. drops the dead jcenter() repos and substitutes google() + mavenCentral()
-//   2. pins buildToolsVersion to 29.0.3, the last release still shipping lib/dx.jar
+//   2. repoints the dead io.fabric.tools buildscript classpath at AGP, which is
+//      already on the same classpath, because maven.fabric.io answers 403
+//   3. pins buildToolsVersion to 29.0.3, the last release still shipping lib/dx.jar
 //      that AGP 3.5.3 hard-depends on (30.0.0 and later removed it)
-//   3. keeps the ABI list intact by relying on NDK r17c, the last NDK that still
+//   4. keeps the ABI list intact by relying on NDK r17c, the last NDK that still
 //      knows the x86 ABI the project asks for in leveldb/build.gradle
 
 allprojects {
@@ -11,16 +13,33 @@ allprojects {
         repositories {
             google()
             mavenCentral()
+            maven { url 'https://jitpack.io' }
         }
     }
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
         all { ArtifactRepository repo ->
             if (repo instanceof MavenArtifactRepository &&
                 repo.url != null &&
                 repo.url.toString().contains('jcenter')) {
                 remove repo
+            }
+        }
+    }
+}
+
+// The buildscript classpath resolves before allprojects callbacks run, so this
+// has to hook beforeProject. Substituting rather than removing keeps the upstream
+// build.gradle untouched; the io.fabric plugin is never applied anyway, its apply
+// line in app/build.gradle is commented out.
+gradle.beforeProject { project ->
+    project.buildscript.configurations.all { config ->
+        config.resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'io.fabric.tools' &&
+                details.requested.name == 'gradle') {
+                details.useTarget('com.android.tools.build:gradle:3.5.3')
             }
         }
     }
