@@ -16,14 +16,21 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Set up JDK 8
+      # cmdline-tools 16.0 refuses to run on anything below JDK 17, so the
+      # SDK is provisioned first under JDK 17 and Gradle runs after switching back
+      - name: Set up JDK 17 for sdkmanager
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 8
+          java-version: 17
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12266719
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
+          packages: 'tools platform-tools'
 
       - name: Install SDK components
         run: |
@@ -31,6 +38,17 @@ jobs:
             "platforms;android-31" \
             "build-tools;29.0.3" \
             "platform-tools"
+
+      - name: Set up JDK 8 for Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+
+      - name: Verify JDK switch
+        run: |
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
 
       - name: Set up NDK r17c
         uses: nttld/setup-ndk@v1
